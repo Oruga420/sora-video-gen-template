@@ -75,6 +75,10 @@ body {
   }
 }
 
+main {
+  isolation: isolate;
+}
+
 .hero {
   position: relative;
   z-index: 2;
@@ -410,6 +414,11 @@ body {
 
 .btn.is-loading::after {
   display: none;
+}
+
+.btn__icon {
+  font-size: 0.8rem;
+  letter-spacing: 0;
 }
 
 .log-feed {

@@ -1,46 +1,56 @@
 ## Contra Cutscene Lab
 
-Dynamic pixel-inspired interface for launching Sora video generations with a neon Contra aesthetic. The app bridges a retro-styled front-end to the Sora API via a lightweight Express proxy, handles async job tracking, and surfaces completed renders for playback and download without clearing previous results until a page refresh.
+Next.js (App Router) playground for launching Sora video generations in a Contra-inspired pixel interface. The UI runs fully on Vercel's serverless platform: React handles the neon control deck, while API routes proxy calls to the Sora Video API so the browser never sees your key.
+
+### Stack
+
+- **Next.js 14** with the app directory and React Server/Client components
+- **Sora Video API** via `openai` SDK (`videos.create`, `videos.retrieve`, `videos.downloadContent`)
+- **Neon pixel styling** ported from the original static build into `app/globals.css`
 
 ### Prerequisites
 
 - Node.js 18+
-- A Sora-enabled OpenAI API key with access to the preview Video API
+- An OpenAI API key with access to Sora Video (set as `OPENAI_API_KEY`)
 
-### Configuration
-
-1. Install dependencies
-   ```bash
-   npm install
-   ```
-2. Copy and fill in environment variables
-   ```bash
-   cp .env.example .env
-   # set OPENAI_API_KEY and optionally PORT
-   ```
-
-The server logs a warning and returns 500s on API routes until `OPENAI_API_KEY` is supplied.
-
-### Usage
+### Local Setup
 
 ```bash
-npm run start
-# access http://localhost:3000
+npm install
+cp .env.example .env
+# populate OPENAI_API_KEY in .env
+npm run dev
 ```
 
-- Enter a prompt on the "Command Deck" form to launch a generation (`POST /api/videos`).
-- The interface polls Sora for job status, visualizes progress, and downloads the completed MP4 once available.
-- Videos persist on the page (playback + download) until you reload, meeting the acceptance requirement.
-- Failed jobs expose a retry button that reloads the original prompt into the form.
+Visit `http://localhost:3000` and submit a prompt from the Command Deck. Jobs are polled server-side, completed videos stream back for inline playback/download, and failures keep their prompts handy for a one-click retry.
 
-### Implementation Notes
+### Deploying on Vercel
 
-- `server.js` wraps the Sora API (`openai.videos.create`, `retrieve`, and `downloadContent`) and serves static assets from `public/`.
-- The front-end (`public/index.html`, `styles.css`, `app.js`) delivers a responsive, animated Contra-inspired pixel experience using the specified purple, yellow, and toxic-green palette.
-- Binary downloads are proxied through Express so the browser never exposes your API key.
+1. Push this branch to GitHub (done) and import the repo in Vercel.
+2. Set an `OPENAI_API_KEY` environment variable in the Vercel project (Project Settings ? Environment Variables).
+3. Deploy. Vercel automatically detects the Next.js app; no custom builds or rewrites required.
 
-### Deploying to Vercel
+> The API routes (`app/api/videos/*`) run in the Node.js serverless runtime, so each request spins up the OpenAI client on demand. Keep prompts within guardrail limits to avoid failed generations.
 
-- The `api/index.js` entry exports the Express app for Vercel’s Serverless Functions.
-- Ensure `OPENAI_API_KEY` is configured in the Vercel project environment variables.
-- Static assets are served from `/public`, so no additional rewrites are required.
+### Project Structure
+
+```
+app/
+  api/
+    videos/
+      route.js              # POST /api/videos
+      [id]/route.js         # GET /api/videos/:id
+      [id]/content/route.js # GET /api/videos/:id/content
+  globals.css               # pixel-styled theme
+  layout.jsx                # global layout + fonts
+  page.jsx                  # Contra control deck UI
+public/                     # static assets placeholder
+.env.example                # environment template
+sora_guide.md               # original Sora API guide (verbatim)
+```
+
+### Notes
+
+- Generated videos persist on the page until a full reload, satisfying the original acceptance criteria.
+- Object URLs are reclaimed on cleanup to avoid leaking browser memory.
+- If the UI stalls, check Vercel deployment logs for request errors (missing key, prompt violation, etc.).
