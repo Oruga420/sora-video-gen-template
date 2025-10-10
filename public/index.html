@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sora Contra Lab</title>
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="scanlines"></div>
+    <div class="pixel-overlay"></div>
+    <header class="hero">
+      <div class="hero__content">
+        <h1 class="hero__title">
+          <span class="title-glitch" data-text="Contra Cutscene Lab">Contra&nbsp;Cutscene&nbsp;Lab</span>
+        </h1>
+        <p class="hero__subtitle">
+          Fuse retro grit with Sora&rsquo;s video synth. Prompt, deploy, and remix neon explosions in pure pixel style.
+        </p>
+      </div>
+      <div class="hero__badge">
+        <span class="badge-label">Sora API</span>
+        <span class="badge-light"></span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel panel--prompt">
+        <header class="panel__header">
+          <h2>Command Deck</h2>
+          <span class="status-led" data-state="idle"></span>
+        </header>
+        <form id="prompt-form" class="prompt-form">
+          <label class="prompt-form__label" for="prompt-input">Mission Prompt</label>
+          <textarea
+            id="prompt-input"
+            name="prompt"
+            rows="4"
+            maxlength="600"
+            placeholder="Example: Wide shot of two pixel commandos sprinting through a neon jungle, explosive synth lighting, dynamic parallax."
+            required
+          ></textarea>
+          <div class="prompt-form__actions">
+            <button type="submit" class="btn btn--primary" id="generate-btn">
+              <span class="btn__icon">>></span>
+              Launch Generation
+            </button>
+            <button type="reset" class="btn btn--ghost">
+              <span class="btn__icon">X</span>
+              Purge Prompt
+            </button>
+          </div>
+        </form>
+        <div class="log-feed" id="log-feed" aria-live="polite"></div>
+      </section>
+
+      <section class="panel panel--videos">
+        <header class="panel__header">
+          <h2>Hangar Bay</h2>
+          <div class="panel__meta">
+            <span class="meta-chip" id="video-count">0 Videos Armed</span>
+          </div>
+        </header>
+        <div id="video-grid" class="video-grid" role="list"></div>
+        <template id="video-card-template">
+          <article class="video-card" role="listitem">
+            <header class="video-card__header">
+              <span class="video-card__title">Sora Operation</span>
+              <span class="video-card__status" data-status="queued">Queued</span>
+            </header>
+            <div class="video-card__body">
+              <div class="video-shell">
+                <div class="video-shell__screen">
+                  <div class="loading-scan">
+                    <span class="loading-scan__bar"></span>
+                    <span class="loading-scan__bar"></span>
+                    <span class="loading-scan__bar"></span>
+                  </div>
+                </div>
+              </div>
+              <div class="video-card__details">
+                <p class="video-card__prompt"></p>
+                <div class="video-card__progress">
+                  <div class="progress-bar">
+                    <span class="progress-bar__fill"></span>
+                  </div>
+                  <span class="progress-percent">0%</span>
+                </div>
+              </div>
+            </div>
+            <footer class="video-card__footer">
+              <button class="btn btn--mini btn--ghost retry-btn" hidden>Retry</button>
+              <a class="btn btn--mini btn--download" href="#" download hidden>
+                <span class="btn__icon">DL</span>
+                Download
+              </a>
+            </footer>
+          </article>
+        </template>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        Built for high-octane experimentation. Videos persist until reload. Strap in.
+      </p>
+    </footer>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
