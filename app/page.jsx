@@ -19,6 +19,11 @@ const formatTime = (date) =>
 
 export default function HomePage() {
   const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("sora-2");
+  const [seconds, setSeconds] = useState("8");
+  const [size, setSize] = useState("1280x720");
+  const [remixVideoId, setRemixVideoId] = useState("");
+  const [inputReference, setInputReference] = useState("");
   const [videos, setVideos] = useState([]);
   const [logs, setLogs] = useState([]);
   const [statusLed, setStatusLed] = useState("idle");
@@ -181,7 +186,14 @@ export default function HomePage() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ prompt: trimmedPrompt }),
+          body: JSON.stringify({
+            prompt: trimmedPrompt,
+            model,
+            seconds,
+            size,
+            remix_video_id: remixVideoId.trim() || undefined,
+            input_reference: inputReference.trim() || undefined,
+          }),
         });
 
         if (!response.ok) {
@@ -207,6 +219,8 @@ export default function HomePage() {
 
         startPolling(job.id);
         setPrompt("");
+        setRemixVideoId("");
+        setInputReference("");
       } catch (error) {
         emitLog(`Launch aborted: ${error.message}`, "error");
         setStatusLed("error");
@@ -217,11 +231,16 @@ export default function HomePage() {
         }
       }
     },
-    [prompt, emitLog, startPolling]
+    [prompt, model, seconds, size, remixVideoId, inputReference, emitLog, startPolling]
   );
 
   const handleReset = useCallback(() => {
     setPrompt("");
+    setModel("sora-2");
+    setSeconds("8");
+    setSize("1280x720");
+    setRemixVideoId("");
+    setInputReference("");
     setStatusLed("idle");
     emitLog("Prompt buffer purged.", "info");
     if (promptRef.current) {
@@ -296,6 +315,56 @@ export default function HomePage() {
                 Purge Prompt
               </button>
             </div>
+            <section className="config-panel" aria-label="Render configuration">
+              <header className="config-panel__header">
+                <h3>Render Specs</h3>
+                <span>Fine-tune how Sora composes the clip.</span>
+              </header>
+              <div className="config-grid">
+                <label className="config-field">
+                  <span>Model</span>
+                  <select value={model} onChange={(event) => setModel(event.target.value)}>
+                    <option value="sora-2">sora-2 - fast iteration</option>
+                    <option value="sora-2-pro">sora-2-pro - cinematic</option>
+                  </select>
+                </label>
+                <label className="config-field">
+                  <span>Seconds</span>
+                  <select value={seconds} onChange={(event) => setSeconds(event.target.value)}>
+                    <option value="4">4s</option>
+                    <option value="8">8s</option>
+                    <option value="12">12s</option>
+                  </select>
+                </label>
+                <label className="config-field">
+                  <span>Canvas</span>
+                  <select value={size} onChange={(event) => setSize(event.target.value)}>
+                    <option value="1280x720">1280 x 720 - HD landscape</option>
+                    <option value="1920x1080">1920 x 1080 - Full HD</option>
+                    <option value="720x1280">720 x 1280 - Vertical</option>
+                    <option value="1024x1024">1024 x 1024 - Square</option>
+                  </select>
+                </label>
+                <label className="config-field config-field--wide">
+                  <span>Remix video id</span>
+                  <input
+                    type="text"
+                    placeholder="Optional: video_xxx to reuse structure"
+                    value={remixVideoId}
+                    onChange={(event) => setRemixVideoId(event.target.value)}
+                  />
+                </label>
+                <label className="config-field config-field--wide">
+                  <span>Input reference</span>
+                  <input
+                    type="text"
+                    placeholder="Optional: hosted image URL or asset key"
+                    value={inputReference}
+                    onChange={(event) => setInputReference(event.target.value)}
+                  />
+                </label>
+              </div>
+            </section>
           </form>
           <div className="log-feed" id="log-feed" aria-live="polite">
             {logs.map((log) => (

@@ -24,7 +24,7 @@ export async function POST(request) {
     prompt,
     model = "sora-2",
     size = "1280x720",
-    seconds = 8,
+    seconds = "8",
     remix_video_id,
     input_reference,
   } = payload ?? {};
@@ -40,19 +40,36 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const allowedSeconds = ["4", "8", "12"];
+  const normalizedSeconds = seconds != null ? String(seconds) : "8";
+  const normalizedSize = size != null ? String(size) : "1280x720";
+
+  if (!allowedSeconds.includes(normalizedSeconds)) {
+    return NextResponse.json(
+      {
+        error: `Invalid seconds value. Allowed options: ${allowedSeconds.join(", ")}.`,
+      },
+      { status: 400 }
+    );
+  }
+
   const requestBody = {
     model,
     prompt: prompt.trim(),
-    size,
-    seconds,
+    size: normalizedSize,
+    seconds: normalizedSeconds,
   };
 
-  if (remix_video_id) {
-    requestBody.remix_video_id = remix_video_id;
+  const trimmedRemixId =
+    typeof remix_video_id === "string" ? remix_video_id.trim() : remix_video_id;
+  if (trimmedRemixId) {
+    requestBody.remix_video_id = trimmedRemixId;
   }
 
-  if (input_reference) {
-    requestBody.input_reference = input_reference;
+  const trimmedInputReference =
+    typeof input_reference === "string" ? input_reference.trim() : input_reference;
+  if (trimmedInputReference) {
+    requestBody.input_reference = trimmedInputReference;
   }
 
   try {

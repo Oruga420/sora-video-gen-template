@@ -27,7 +27,7 @@ Visit `http://localhost:3000` and submit a prompt from the Command Deck. Jobs ar
 ### Deploying on Vercel
 
 1. Push this branch to GitHub (done) and import the repo in Vercel.
-2. Set an `OPENAI_API_KEY` environment variable in the Vercel project (Project Settings ? Environment Variables).
+2. Set an `OPENAI_API_KEY` environment variable in the Vercel project (Project Settings -> Environment Variables).
 3. Deploy. Vercel automatically detects the Next.js app; no custom builds or rewrites required.
 
 > The API routes (`app/api/videos/*`) run in the Node.js serverless runtime, so each request spins up the OpenAI client on demand. Keep prompts within guardrail limits to avoid failed generations.
@@ -54,3 +54,4 @@ sora_guide.md               # original Sora API guide (verbatim)
 - Generated videos persist on the page until a full reload, satisfying the original acceptance criteria.
 - Object URLs are reclaimed on cleanup to avoid leaking browser memory.
 - If the UI stalls, check Vercel deployment logs for request errors (missing key, prompt violation, etc.).
+
