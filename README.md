@@ -38,3 +38,9 @@ npm run start
 - `server.js` wraps the Sora API (`openai.videos.create`, `retrieve`, and `downloadContent`) and serves static assets from `public/`.
 - The front-end (`public/index.html`, `styles.css`, `app.js`) delivers a responsive, animated Contra-inspired pixel experience using the specified purple, yellow, and toxic-green palette.
 - Binary downloads are proxied through Express so the browser never exposes your API key.
+
+### Deploying to Vercel
+
+- The `api/index.js` entry exports the Express app for Vercel’s Serverless Functions.
+- Ensure `OPENAI_API_KEY` is configured in the Vercel project environment variables.
+- Static assets are served from `/public`, so no additional rewrites are required.

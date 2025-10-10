@@ -135,6 +135,10 @@ app.get('*', (_, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Sora video generator server listening on http://localhost:${PORT}`);
-});
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, () => {
+    console.log(`Sora video generator server listening on http://localhost:${PORT}`);
+  });
+}
+
+export default app;
