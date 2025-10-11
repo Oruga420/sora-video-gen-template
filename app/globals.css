@@ -552,9 +552,18 @@ main {
 }
 
 .video-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 1.5rem;
+  width: 100%;
+}
+
+@media (min-width: 1200px) {
+  .video-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    align-items: stretch;
+  }
 }
 
 .video-card {
@@ -566,6 +575,8 @@ main {
   box-shadow: 0 26px 48px rgba(8, 0, 16, 0.6), inset 0 0 0 1px rgba(116, 42, 255, 0.18);
   display: grid;
   gap: 0.85rem;
+  width: 100%;
+  min-width: 0;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
@@ -705,12 +716,27 @@ main {
   margin: 0;
   font-size: 0.82rem;
   color: var(--text-sub);
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .video-card__progress {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.video-card__error {
+  margin: 0.75rem 0 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--danger);
+  background: rgba(255, 68, 102, 0.12);
+  border: 1px solid rgba(255, 68, 102, 0.45);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
 }
 
 .progress-bar {
@@ -743,10 +769,13 @@ main {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .video-card video {
   border-radius: 12px;
+  width: 100%;
+  height: auto;
 }
 
 .footer {
