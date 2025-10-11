@@ -72,9 +72,11 @@ export default function HomePage() {
   }, []);
 
   const clearPoller = useCallback((id) => {
-    const timeoutId = pollersRef.current.get(id);
-    if (timeoutId) {
-      clearTimeout(timeoutId);
+    const poller = pollersRef.current.get(id);
+    if (poller?.timeoutId) {
+      clearTimeout(poller.timeoutId);
+    }
+    if (poller) {
       pollersRef.current.delete(id);
     }
   }, []);
@@ -124,20 +126,14 @@ export default function HomePage() {
 
   const startPolling = useCallback(
     (jobId) => {
-      function scheduleNextPoll() {
-        const nextAt = Date.now() + POLL_INTERVAL;
-        mutateVideo(jobId, (video) => ({
-          ...video,
-          nextPollAt: nextAt,
-          timeUntilNextPoll: Math.ceil(POLL_INTERVAL / 1000),
-        }));
-        clearPoller(jobId);
-        const timeoutId = setTimeout(poll, POLL_INTERVAL);
-        pollersRef.current.set(jobId, timeoutId);
-      }
-
-      async function poll() {
+      const poll = async () => {
         try {
+          mutateVideo(jobId, (video) => ({
+            ...video,
+            nextPollAt: Date.now(),
+            timeUntilNextPoll: null,
+          }));
+
           const response = await fetch(`/api/videos/${encodeURIComponent(jobId)}`);
           if (!response.ok) {
             throw new Error(`Status fetch failed with code ${response.status}`);
@@ -215,7 +211,20 @@ export default function HomePage() {
           }
 
           setStatusLed("busy");
-          scheduleNextPoll();
+
+          const nextAt = Date.now() + POLL_INTERVAL;
+          mutateVideo(jobId, (video) => ({
+            ...video,
+            nextPollAt: nextAt,
+            timeUntilNextPoll: Math.ceil(POLL_INTERVAL / 1000),
+          }));
+
+          const existing = pollersRef.current.get(jobId);
+          if (existing?.timeoutId) {
+            clearTimeout(existing.timeoutId);
+          }
+          const timeoutId = setTimeout(poll, POLL_INTERVAL);
+          pollersRef.current.set(jobId, { poll, timeoutId });
         } catch (error) {
           emitLog(`Lost contact with job ${jobId}: ${error.message}`, "error");
           setStatusLed("error");
@@ -226,17 +235,33 @@ export default function HomePage() {
           }));
           clearPoller(jobId);
         }
+      };
+
+      const existing = pollersRef.current.get(jobId);
+      if (existing?.timeoutId) {
+        clearTimeout(existing.timeoutId);
       }
-
-      mutateVideo(jobId, (video) => ({
-        ...video,
-        nextPollAt: Date.now(),
-        timeUntilNextPoll: null,
-      }));
-
+      pollersRef.current.set(jobId, { poll, timeoutId: null });
       poll();
     },
     [emitLog, mutateVideo, clearPoller]
+  );
+
+  const forcePollNow = useCallback(
+    (jobId) => {
+      const poller = pollersRef.current.get(jobId);
+      if (poller?.timeoutId) {
+        clearTimeout(poller.timeoutId);
+        pollersRef.current.set(jobId, { poll: poller.poll, timeoutId: null });
+      }
+
+      if (poller?.poll) {
+        poller.poll();
+      } else {
+        startPolling(jobId);
+      }
+    },
+    [startPolling]
   );
 
   const handleSubmit = useCallback(
@@ -519,6 +544,14 @@ export default function HomePage() {
                       hidden={!isFailed}
                     >
                       Retry
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--mini btn--ghost"
+                      onClick={() => forcePollNow(video.id)}
+                      hidden={canDownload || isFailed}
+                    >
+                      Check now
                     </button>
                     <a
                       className="btn btn--mini btn--download"
