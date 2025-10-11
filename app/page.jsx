@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const POLL_INTERVAL = 3500;
+const POLL_INTERVAL = 60000; // 60 seconds between polls
+const COUNTDOWN_TICK_MS = 1000;
 
 const formatStatus = (status = "") =>
   status
@@ -16,6 +17,19 @@ const formatTime = (date) =>
     minute: "2-digit",
     second: "2-digit",
   });
+
+const formatCountdown = (seconds) => {
+  if (seconds == null) {
+    return "";
+  }
+  const safeSeconds = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainder = safeSeconds % 60;
+  if (minutes > 0) {
+    return `${minutes}m ${remainder.toString().padStart(2, "0")}s`;
+  }
+  return `${remainder}s`;
+};
 
 export default function HomePage() {
   const [prompt, setPrompt] = useState("");
@@ -31,6 +45,7 @@ export default function HomePage() {
   const pollersRef = useRef(new Map());
   const objectUrlsRef = useRef(new Set());
   const promptRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
 
   const emitLog = useCallback((message, type = "info") => {
     setLogs((prev) => [
@@ -73,9 +88,55 @@ export default function HomePage() {
     };
   }, []);
 
+  useEffect(() => {
+    countdownIntervalRef.current = setInterval(() => {
+      setVideos((prev) =>
+        prev.map((video) => {
+          if (!video.nextPollAt || video.status === "completed" || video.status === "failed") {
+            if (video.timeUntilNextPoll != null) {
+              return {
+                ...video,
+                timeUntilNextPoll: null,
+              };
+            }
+            return video;
+          }
+
+          const remaining = Math.max(0, Math.ceil((video.nextPollAt - Date.now()) / 1000));
+          if (remaining === video.timeUntilNextPoll) {
+            return video;
+          }
+
+          return {
+            ...video,
+            timeUntilNextPoll: remaining,
+          };
+        })
+      );
+    }, COUNTDOWN_TICK_MS);
+
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
+    };
+  }, []);
+
   const startPolling = useCallback(
     (jobId) => {
-      const poll = async () => {
+      function scheduleNextPoll() {
+        const nextAt = Date.now() + POLL_INTERVAL;
+        mutateVideo(jobId, (video) => ({
+          ...video,
+          nextPollAt: nextAt,
+          timeUntilNextPoll: Math.ceil(POLL_INTERVAL / 1000),
+        }));
+        clearPoller(jobId);
+        const timeoutId = setTimeout(poll, POLL_INTERVAL);
+        pollersRef.current.set(jobId, timeoutId);
+      }
+
+      async function poll() {
         try {
           const response = await fetch(`/api/videos/${encodeURIComponent(jobId)}`);
           if (!response.ok) {
@@ -114,6 +175,8 @@ export default function HomePage() {
                   progress: 100,
                   objectUrl,
                   errorMessage: null,
+                  nextPollAt: null,
+                  timeUntilNextPoll: null,
                 };
               });
 
@@ -124,6 +187,8 @@ export default function HomePage() {
                 ...video,
                 status: "failed",
                 errorMessage: downloadError.message,
+                nextPollAt: null,
+                timeUntilNextPoll: null,
               }));
               emitLog(`Job ${jobId} download failed: ${downloadError.message}`, "error");
               setStatusLed("error");
@@ -140,6 +205,8 @@ export default function HomePage() {
               status: "failed",
               errorMessage: message,
               progress: 100,
+              nextPollAt: null,
+              timeUntilNextPoll: null,
             }));
             emitLog(`Job ${jobId} failed: ${message}`, "error");
             setStatusLed("error");
@@ -148,21 +215,26 @@ export default function HomePage() {
           }
 
           setStatusLed("busy");
+          scheduleNextPoll();
         } catch (error) {
           emitLog(`Lost contact with job ${jobId}: ${error.message}`, "error");
           setStatusLed("error");
+          mutateVideo(jobId, (video) => ({
+            ...video,
+            nextPollAt: null,
+            timeUntilNextPoll: null,
+          }));
           clearPoller(jobId);
-          return;
         }
+      }
 
-        clearPoller(jobId);
-        const timeoutId = setTimeout(poll, POLL_INTERVAL);
-        pollersRef.current.set(jobId, timeoutId);
-      };
+      mutateVideo(jobId, (video) => ({
+        ...video,
+        nextPollAt: Date.now(),
+        timeUntilNextPoll: null,
+      }));
 
-      clearPoller(jobId);
-      const timeoutId = setTimeout(poll, POLL_INTERVAL);
-      pollersRef.current.set(jobId, timeoutId);
+      poll();
     },
     [emitLog, mutateVideo, clearPoller]
   );
@@ -213,6 +285,8 @@ export default function HomePage() {
             progress: Number(job.progress ?? 0) || 0,
             objectUrl: null,
             errorMessage: null,
+            nextPollAt: null,
+            timeUntilNextPoll: null,
           },
           ...prev,
         ]);
@@ -430,6 +504,11 @@ export default function HomePage() {
                         </div>
                         <span className="progress-percent">{progressLabel}</span>
                       </div>
+                      {video.timeUntilNextPoll != null && !canDownload && !isFailed && (
+                        <span className="next-poll">
+                          Next check in {formatCountdown(video.timeUntilNextPoll)}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <footer className="video-card__footer">
