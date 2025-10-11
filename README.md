@@ -52,8 +52,11 @@ sora_guide.md               # original Sora API guide (verbatim)
 ### Notes
 
 - Generated videos persist on the page until a full reload, satisfying the original acceptance criteria.
-- Object URLs are reclaimed on cleanup to avoid leaking browser memory.\n- Status polling throttles to once per minute with an on-card countdown to keep the API load minimal, plus a manual 'Check now' button when you need an immediate refresh.
+- Object URLs are reclaimed on cleanup to avoid leaking browser memory.
+- Render specs are locked to sora-2 at 1280x720 for predictable performance.
+- Status polling throttles to once per minute with an on-card countdown to keep the API load minimal, plus a manual 'Check now' button when you need an immediate refresh.
 - If the UI stalls, check Vercel deployment logs for request errors (missing key, prompt violation, etc.).
+
 
 
 

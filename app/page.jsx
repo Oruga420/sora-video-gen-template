@@ -424,7 +424,6 @@ export default function HomePage() {
                   <span>Model</span>
                   <select value={model} onChange={(event) => setModel(event.target.value)}>
                     <option value="sora-2">sora-2 - fast iteration</option>
-                    <option value="sora-2-pro">sora-2-pro - cinematic</option>
                   </select>
                 </label>
                 <label className="config-field">
@@ -439,9 +438,6 @@ export default function HomePage() {
                   <span>Canvas</span>
                   <select value={size} onChange={(event) => setSize(event.target.value)}>
                     <option value="1280x720">1280 x 720 - HD landscape</option>
-                    <option value="1920x1080">1920 x 1080 - Full HD</option>
-                    <option value="720x1280">720 x 1280 - Vertical</option>
-                    <option value="1024x1024">1024 x 1024 - Square</option>
                   </select>
                 </label>
                 <label className="config-field config-field--wide">
