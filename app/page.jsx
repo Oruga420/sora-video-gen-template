@@ -340,8 +340,8 @@ export default function HomePage() {
       <header className="hero">
         <div className="hero__content">
           <h1 className="hero__title">
-            <span className="title-glitch" data-text="Contra Cutscene Lab">
-              {"Contra\u00A0Cutscene\u00A0Lab"}
+            <span className="title-glitch" data-text="Sesh Video Gen">
+              {"Sesh\u00A0Video\u00A0Gen"}
             </span>
           </h1>
           <p className="hero__subtitle">

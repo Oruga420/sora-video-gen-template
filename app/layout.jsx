@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Sora Contra Lab',
+  title: 'Sesh Video Gen',
   description: 'Contra-inspired interface for orchestrating video generations with the Sora API.',
 };
 

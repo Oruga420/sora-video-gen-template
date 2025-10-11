@@ -1,4 +1,4 @@
-## Contra Cutscene Lab
+## Sesh Video Gen
 
 Next.js (App Router) playground for launching Sora video generations in a Contra-inspired pixel interface. The UI runs fully on Vercel's serverless platform: React handles the neon control deck, while API routes proxy calls to the Sora Video API so the browser never sees your key.
 
