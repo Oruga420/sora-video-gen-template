@@ -53,7 +53,7 @@ sora_guide.md               # original Sora API guide (verbatim)
 
 - Generated videos persist on the page until a full reload, satisfying the original acceptance criteria.
 - Object URLs are reclaimed on cleanup to avoid leaking browser memory.
-- Render specs are locked to sora-2 at 1280x720 for predictable performance.
+- Render specs are locked to sora-2 at 1280x720 for predictable performance, and the UI auto-attempts a direct download 3 minutes after launch if Sora is slow to publish the MP4.
 - Status polling throttles to once per minute with an on-card countdown to keep the API load minimal, plus a manual 'Check now' button when you need an immediate refresh.
 - If the UI stalls, check Vercel deployment logs for request errors (missing key, prompt violation, etc.).
 

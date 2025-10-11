@@ -47,6 +47,11 @@ export default function HomePage() {
   const objectUrlsRef = useRef(new Set());
   const promptRef = useRef(null);
   const countdownIntervalRef = useRef(null);
+  const videosRef = useRef([]);
+
+  useEffect(() => {
+    videosRef.current = videos;
+  }, [videos]);
 
   const emitLog = useCallback((message, type = "info") => {
     setLogs((prev) => [
@@ -81,6 +86,97 @@ export default function HomePage() {
       pollersRef.current.delete(id);
     }
   }, []);
+
+  const attemptDownload = useCallback(
+    async (jobId, { markCompleted = false, reason = "poll" } = {}) => {
+      try {
+        const response = await fetch(`/api/videos/${encodeURIComponent(jobId)}/content`);
+
+        if (response.status === 404) {
+          if (reason === "fallback") {
+            mutateVideo(jobId, (video) => ({
+              ...video,
+              fallbackTriggered: true,
+              fallbackAttempts: (video?.fallbackAttempts ?? 0) + 1,
+              lastFallbackAttemptAt: Date.now(),
+            }));
+            emitLog(`Fallback download for ${jobId} not ready yet (404).`, "info");
+          }
+          return false;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Download failed with status ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        objectUrlsRef.current.add(objectUrl);
+
+        mutateVideo(jobId, (video) => {
+          if (video.objectUrl) {
+            URL.revokeObjectURL(video.objectUrl);
+            objectUrlsRef.current.delete(video.objectUrl);
+          }
+          return {
+            ...video,
+            status: markCompleted ? "completed" : video.status,
+            progress: markCompleted ? 100 : video.progress,
+            objectUrl,
+            errorMessage: null,
+            nextPollAt: null,
+            timeUntilNextPoll: null,
+            fallbackTriggered:
+              reason === "fallback" ? true : video?.fallbackTriggered ?? false,
+            fallbackAttempts:
+              reason === "fallback"
+                ? (video?.fallbackAttempts ?? 0) + 1
+                : video?.fallbackAttempts ?? 0,
+            lastFallbackAttemptAt:
+              reason === "fallback" ? Date.now() : video?.lastFallbackAttemptAt ?? null,
+          };
+        });
+
+        emitLog(
+          reason === "fallback"
+            ? `Job ${jobId} content fetched via fallback download.`
+            : `Job ${jobId} completed. Video secured.`,
+          "success"
+        );
+        setStatusLed("done");
+        clearPoller(jobId);
+        return true;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown download error";
+
+        if (reason === "fallback") {
+          emitLog(`Fallback download for ${jobId} hit an error: ${message}`, "error");
+          mutateVideo(jobId, (video) => ({
+            ...video,
+            fallbackTriggered: true,
+            fallbackAttempts: (video?.fallbackAttempts ?? 0) + 1,
+            lastFallbackAttemptAt: Date.now(),
+            errorMessage: video.errorMessage ?? message,
+          }));
+          return false;
+        }
+
+        mutateVideo(jobId, (video) => ({
+          ...video,
+          status: "failed",
+          errorMessage: message,
+          nextPollAt: null,
+          timeUntilNextPoll: null,
+        }));
+        emitLog(`Job ${jobId} download failed: ${message}`, "error");
+        setStatusLed("error");
+        clearPoller(jobId);
+        return false;
+      }
+    },
+    [clearPoller, emitLog, mutateVideo]
+  );
 
   useEffect(() => {
     return () => {
@@ -191,64 +287,15 @@ export default function HomePage() {
           }
 
           if (job.status === "completed") {
-            try {
-              const contentResponse = await fetch(
-                `/api/videos/${encodeURIComponent(jobId)}/content`
-              );
+            const downloaded = await attemptDownload(jobId, {
+              markCompleted: true,
+              reason: "poll",
+            });
 
-              if (contentResponse.status === 404) {
-                emitLog(`Video ${jobId} content not ready yet, retrying soon.`, "info");
-                schedulePoll(poll, Math.min(10000, POLL_INTERVAL));
-                return;
-              }
-
-              if (!contentResponse.ok) {
-                throw new Error(`Download failed with status ${contentResponse.status}`);
-              }
-
-              const blob = await contentResponse.blob();
-              const objectUrl = URL.createObjectURL(blob);
-              objectUrlsRef.current.add(objectUrl);
-
-              mutateVideo(jobId, (video) => {
-                if (video.objectUrl) {
-                  URL.revokeObjectURL(video.objectUrl);
-                  objectUrlsRef.current.delete(video.objectUrl);
-                }
-                return {
-                  ...video,
-                  status: "completed",
-                  progress: 100,
-                  objectUrl,
-                  errorMessage: null,
-                  nextPollAt: null,
-                  timeUntilNextPoll: null,
-                };
-              });
-
-              emitLog(`Job ${jobId} completed. Video secured.`, "success");
-              setStatusLed("done");
-              clearPoller(jobId);
-              return;
-            } catch (downloadError) {
-              if (/404/.test(downloadError.message)) {
-                emitLog(`Video ${jobId} content not ready yet, retrying soon.`, "info");
-                schedulePoll(poll, Math.min(10000, POLL_INTERVAL));
-                return;
-              }
-
-              mutateVideo(jobId, (video) => ({
-                ...video,
-                status: "failed",
-                errorMessage: downloadError.message,
-                nextPollAt: null,
-                timeUntilNextPoll: null,
-              }));
-              emitLog(`Job ${jobId} download failed: ${downloadError.message}`, "error");
-              setStatusLed("error");
-              clearPoller(jobId);
-              return;
+            if (!downloaded) {
+              schedulePoll(poll, Math.min(10000, POLL_INTERVAL));
             }
+            return;
           }
 
           if (job.status === "failed") {
@@ -268,7 +315,34 @@ export default function HomePage() {
           }
 
           setStatusLed("busy");
-          schedulePoll(poll, POLL_INTERVAL);
+          let fallbackHandled = false;
+          const snapshot = videosRef.current.find((video) => video.id === jobId);
+          if (snapshot && !snapshot.objectUrl) {
+            const fallbackAt =
+              snapshot.downloadFallbackAt ??
+              ((snapshot.createdAt ?? Date.now()) + 3 * 60 * 1000);
+            const lastAttemptAt = snapshot.lastFallbackAttemptAt ?? 0;
+            if (Date.now() >= fallbackAt && Date.now() - lastAttemptAt >= 30000) {
+              emitLog(
+                `Forcing fallback download for ${jobId} after waiting 3 minutes.`,
+                "info"
+              );
+              const downloaded = await attemptDownload(jobId, {
+                markCompleted: true,
+                reason: "fallback",
+              });
+              fallbackHandled = true;
+              if (downloaded) {
+                return;
+              }
+            }
+          }
+
+          if (fallbackHandled) {
+            schedulePoll(poll, Math.min(15000, POLL_INTERVAL));
+          } else {
+            schedulePoll(poll, POLL_INTERVAL);
+          }
         } catch (error) {
           emitLog(`Lost contact with job ${jobId}: ${error.message}`, "error");
           setStatusLed("error");
@@ -357,6 +431,10 @@ export default function HomePage() {
             errorMessage: null,
             createdAt: createdAtMs,
             notifiedStall: false,
+            downloadFallbackAt: createdAtMs + 3 * 60 * 1000,
+            fallbackAttempts: 0,
+            fallbackTriggered: false,
+            lastFallbackAttemptAt: null,
             nextPollAt: null,
             timeUntilNextPoll: null,
           },
