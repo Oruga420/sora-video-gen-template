@@ -543,6 +543,9 @@ export default function HomePage() {
                           />
                         </div>
                         <span className="progress-percent">{progressLabel}</span>
+                      {isFailed && video.errorMessage ? (
+                        <p className="video-card__error">{video.errorMessage}</p>
+                      ) : null}
                       </div>
                       {video.timeUntilNextPoll != null && !canDownload && !isFailed && (
                         <span className="next-poll">
