@@ -126,6 +126,23 @@ export default function HomePage() {
 
   const startPolling = useCallback(
     (jobId) => {
+      const schedulePoll = (pollFn, delayMs) => {
+        const nextAt = Date.now() + delayMs;
+        mutateVideo(jobId, (video) => ({
+          ...video,
+          nextPollAt: nextAt,
+          timeUntilNextPoll: Math.ceil(delayMs / 1000),
+        }));
+
+        const existing = pollersRef.current.get(jobId);
+        if (existing?.timeoutId) {
+          clearTimeout(existing.timeoutId);
+        }
+
+        const timeoutId = setTimeout(pollFn, delayMs);
+        pollersRef.current.set(jobId, { poll: pollFn, timeoutId });
+      };
+
       const poll = async () => {
         try {
           mutateVideo(jobId, (video) => ({
@@ -153,9 +170,17 @@ export default function HomePage() {
               const contentResponse = await fetch(
                 `/api/videos/${encodeURIComponent(jobId)}/content`
               );
+
+              if (contentResponse.status === 404) {
+                emitLog(`Video ${jobId} content not ready yet, retrying soon.`, "info");
+                schedulePoll(poll, Math.min(10000, POLL_INTERVAL));
+                return;
+              }
+
               if (!contentResponse.ok) {
                 throw new Error(`Download failed with status ${contentResponse.status}`);
               }
+
               const blob = await contentResponse.blob();
               const objectUrl = URL.createObjectURL(blob);
               objectUrlsRef.current.add(objectUrl);
@@ -178,7 +203,15 @@ export default function HomePage() {
 
               emitLog(`Job ${jobId} completed. Video secured.`, "success");
               setStatusLed("done");
+              clearPoller(jobId);
+              return;
             } catch (downloadError) {
+              if (/404/.test(downloadError.message)) {
+                emitLog(`Video ${jobId} content not ready yet, retrying soon.`, "info");
+                schedulePoll(poll, Math.min(10000, POLL_INTERVAL));
+                return;
+              }
+
               mutateVideo(jobId, (video) => ({
                 ...video,
                 status: "failed",
@@ -188,10 +221,9 @@ export default function HomePage() {
               }));
               emitLog(`Job ${jobId} download failed: ${downloadError.message}`, "error");
               setStatusLed("error");
+              clearPoller(jobId);
+              return;
             }
-
-            clearPoller(jobId);
-            return;
           }
 
           if (job.status === "failed") {
@@ -211,20 +243,7 @@ export default function HomePage() {
           }
 
           setStatusLed("busy");
-
-          const nextAt = Date.now() + POLL_INTERVAL;
-          mutateVideo(jobId, (video) => ({
-            ...video,
-            nextPollAt: nextAt,
-            timeUntilNextPoll: Math.ceil(POLL_INTERVAL / 1000),
-          }));
-
-          const existing = pollersRef.current.get(jobId);
-          if (existing?.timeoutId) {
-            clearTimeout(existing.timeoutId);
-          }
-          const timeoutId = setTimeout(poll, POLL_INTERVAL);
-          pollersRef.current.set(jobId, { poll, timeoutId });
+          schedulePoll(poll, POLL_INTERVAL);
         } catch (error) {
           emitLog(`Lost contact with job ${jobId}: ${error.message}`, "error");
           setStatusLed("error");
