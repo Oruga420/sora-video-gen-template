@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const POLL_INTERVAL = 60000; // 60 seconds between polls
 const COUNTDOWN_TICK_MS = 1000;
+const STALLED_WARN_MS = 10 * 60 * 1000; // 10 minutes
 
 const formatStatus = (status = "") =>
   status
@@ -158,12 +159,36 @@ export default function HomePage() {
           const job = await response.json();
           const rawProgress = Number(job.progress ?? 0);
           const progress = Number.isFinite(rawProgress) ? rawProgress : 0;
+          const createdAtMs = ((job.created_at ?? Math.floor(Date.now() / 1000)) * 1000);
+          let shouldWarn = false;
 
-          mutateVideo(jobId, (video) => ({
-            ...video,
-            status: job.status,
-            progress,
-          }));
+          mutateVideo(jobId, (video) => {
+            const effectiveCreatedAt = video?.createdAt ?? createdAtMs;
+            const stalled =
+              job.status === "in_progress" &&
+              Date.now() - effectiveCreatedAt > STALLED_WARN_MS &&
+              !(video?.notifiedStall);
+
+            if (stalled) {
+              shouldWarn = true;
+            }
+
+            return {
+              ...video,
+              status: job.status,
+              progress,
+              createdAt: effectiveCreatedAt,
+              notifiedStall: video?.notifiedStall || stalled,
+            };
+          });
+
+          if (shouldWarn) {
+            emitLog(
+              `Job ${jobId} is still in progress after ${Math.round(STALLED_WARN_MS / 60000)} minutes. Consider retrying the prompt.`,
+              "error"
+            );
+            setStatusLed("error");
+          }
 
           if (job.status === "completed") {
             try {
@@ -319,6 +344,7 @@ export default function HomePage() {
         }
 
         const job = await response.json();
+        const createdAtMs = ((job.created_at ?? Math.floor(Date.now() / 1000)) * 1000);
         emitLog(`Job ${job.id} queued. Tracking progress.`, "info");
 
         setVideos((prev) => [
@@ -329,6 +355,8 @@ export default function HomePage() {
             progress: Number(job.progress ?? 0) || 0,
             objectUrl: null,
             errorMessage: null,
+            createdAt: createdAtMs,
+            notifiedStall: false,
             nextPollAt: null,
             timeUntilNextPoll: null,
           },
@@ -571,6 +599,14 @@ export default function HomePage() {
                     >
                       Check now
                     </button>
+                    <a
+                      className="btn btn--mini btn--ghost"
+                      href={`/api/videos/${video.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Status JSON
+                    </a>
                     <a
                       className="btn btn--mini btn--download"
                       href={canDownload ? video.objectUrl : "#"}
