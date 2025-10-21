@@ -6,6 +6,68 @@ const POLL_INTERVAL = 60000; // 60 seconds between polls
 const COUNTDOWN_TICK_MS = 1000;
 const STALLED_WARN_MS = 10 * 60 * 1000; // 10 minutes
 
+const PROVIDER_LABELS = {
+  openai: "OpenAI",
+  replicate: "Replicate",
+};
+
+const MODEL_CATALOG = [
+  {
+    category: "OpenAI",
+    options: [
+      {
+        id: "openai:sora-2",
+        provider: "openai",
+        apiModel: "sora-2",
+        label: "Sora 2 (fast iteration)",
+        secondsOptions: ["4", "8", "12"],
+        defaultSeconds: "8",
+        sizeOptions: ["1280x720"],
+        defaultSize: "1280x720",
+      },
+      {
+        id: "openai:sora-2-pro",
+        provider: "openai",
+        apiModel: "sora-2-pro",
+        label: "Sora 2 Pro (high fidelity)",
+        secondsOptions: ["4", "8", "12"],
+        defaultSeconds: "8",
+        sizeOptions: ["1280x720"],
+        defaultSize: "1280x720",
+      },
+    ],
+  },
+  {
+    category: "Replicate",
+    options: [
+      {
+        id: "replicate:bytedance/seedance-1-pro",
+        provider: "replicate",
+        apiModel: "bytedance/seedance-1-pro",
+        label: "Seedance 1 Pro (5-10s, 1080p/480p)",
+        secondsOptions: ["5", "10"],
+        defaultSeconds: "5",
+        sizeOptions: ["1080p", "480p"],
+        defaultSize: "1080p",
+      },
+    ],
+  },
+];
+
+const ALL_MODEL_OPTIONS = MODEL_CATALOG.flatMap((group) =>
+  group.options.map((option) => ({
+    ...option,
+    category: group.category,
+  }))
+);
+
+const MODEL_LOOKUP = Object.fromEntries(ALL_MODEL_OPTIONS.map((option) => [option.id, option]));
+const DEFAULT_MODEL_ID = ALL_MODEL_OPTIONS[0].id;
+
+const MODEL_LABEL_LOOKUP = Object.fromEntries(
+  ALL_MODEL_OPTIONS.map((option) => [option.id, option.label])
+);
+
 const formatStatus = (status = "") =>
   status
     .toString()
@@ -32,13 +94,37 @@ const formatCountdown = (seconds) => {
   return `${remainder}s`;
 };
 
+const formatSizeLabel = (value) => {
+  switch (value) {
+    case "1280x720":
+      return "1280 x 720 - HD landscape";
+    case "1080p":
+      return "1080p - Full HD";
+    case "480p":
+      return "480p - SD";
+    default:
+      return value;
+  }
+};
+
 export default function HomePage() {
+  const defaultModelOption = MODEL_LOOKUP[DEFAULT_MODEL_ID] ?? ALL_MODEL_OPTIONS[0];
+  const defaultSeconds = defaultModelOption?.defaultSeconds ?? "8";
+  const defaultSize = defaultModelOption?.defaultSize ?? "1280x720";
+  const defaultModelId = defaultModelOption?.id ?? DEFAULT_MODEL_ID;
+
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("sora-2");
-  const [seconds, setSeconds] = useState("8");
-  const [size, setSize] = useState("1280x720");
+  const [modelId, setModelId] = useState(defaultModelId);
+  const [seconds, setSeconds] = useState(defaultSeconds);
+  const [size, setSize] = useState(defaultSize);
   const [remixVideoId, setRemixVideoId] = useState("");
   const [inputReference, setInputReference] = useState("");
+
+  const selectedModelOption = MODEL_LOOKUP[modelId] ?? defaultModelOption;
+  const selectedProvider = selectedModelOption?.provider ?? "openai";
+  const selectedProviderLabel = PROVIDER_LABELS[selectedProvider] ?? selectedProvider;
+  const secondsOptions = selectedModelOption?.secondsOptions ?? [defaultSeconds];
+  const sizeOptions = selectedModelOption?.sizeOptions ?? [defaultSize];
   const [videos, setVideos] = useState([]);
   const [logs, setLogs] = useState([]);
   const [statusLed, setStatusLed] = useState("idle");
@@ -88,9 +174,12 @@ export default function HomePage() {
   }, []);
 
   const attemptDownload = useCallback(
-    async (jobId, { markCompleted = false, reason = "poll" } = {}) => {
+    async (jobId, provider, { markCompleted = false, reason = "poll" } = {}) => {
       try {
-        const response = await fetch(`/api/videos/${encodeURIComponent(jobId)}/content`);
+        const query = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+        const response = await fetch(
+          `/api/videos/${encodeURIComponent(jobId)}/content${query}`
+        );
 
         if (response.status === 404) {
           if (reason === "fallback") {
@@ -222,7 +311,8 @@ export default function HomePage() {
   }, []);
 
   const startPolling = useCallback(
-    (jobId) => {
+    (jobId, providerHint = "openai") => {
+      const baseProvider = providerHint ?? "openai";
       const schedulePoll = (pollFn, delayMs) => {
         const nextAt = Date.now() + delayMs;
         mutateVideo(jobId, (video) => ({
@@ -237,7 +327,7 @@ export default function HomePage() {
         }
 
         const timeoutId = setTimeout(pollFn, delayMs);
-        pollersRef.current.set(jobId, { poll: pollFn, timeoutId });
+        pollersRef.current.set(jobId, { poll: pollFn, timeoutId, provider: baseProvider });
       };
 
       const poll = async () => {
@@ -248,7 +338,17 @@ export default function HomePage() {
             timeUntilNextPoll: null,
           }));
 
-          const response = await fetch(`/api/videos/${encodeURIComponent(jobId)}`);
+          const snapshotBeforeFetch =
+            videosRef.current.find((video) => video.id === jobId) ?? null;
+          const effectiveProvider =
+            snapshotBeforeFetch?.provider ?? baseProvider ?? "openai";
+          const providerQuery = effectiveProvider
+            ? `?provider=${encodeURIComponent(effectiveProvider)}`
+            : "";
+
+          const response = await fetch(
+            `/api/videos/${encodeURIComponent(jobId)}${providerQuery}`
+          );
           if (!response.ok) {
             throw new Error(`Status fetch failed with code ${response.status}`);
           }
@@ -257,6 +357,14 @@ export default function HomePage() {
           const progress = Number.isFinite(rawProgress) ? rawProgress : 0;
           const createdAtMs = ((job.created_at ?? Math.floor(Date.now() / 1000)) * 1000);
           let shouldWarn = false;
+
+          const currentPoller = pollersRef.current.get(jobId);
+          if (currentPoller) {
+            pollersRef.current.set(jobId, {
+              ...currentPoller,
+              provider: job.provider ?? currentPoller.provider ?? effectiveProvider,
+            });
+          }
 
           mutateVideo(jobId, (video) => {
             const effectiveCreatedAt = video?.createdAt ?? createdAtMs;
@@ -269,8 +377,22 @@ export default function HomePage() {
               shouldWarn = true;
             }
 
+            const providerForVideo =
+              job.provider ?? video?.provider ?? effectiveProvider;
+            const inferredModelId =
+              job.model
+                ? ALL_MODEL_OPTIONS.find(
+                    (option) =>
+                      option.apiModel === job.model &&
+                      option.provider === providerForVideo
+                  )?.id ?? video?.modelId
+                : video?.modelId;
+
             return {
               ...video,
+              provider: providerForVideo,
+              model: job.model ?? video?.model,
+              modelId: inferredModelId,
               status: job.status,
               progress,
               createdAt: effectiveCreatedAt,
@@ -287,7 +409,7 @@ export default function HomePage() {
           }
 
           if (job.status === "completed") {
-            const downloaded = await attemptDownload(jobId, {
+            const downloaded = await attemptDownload(jobId, effectiveProvider, {
               markCompleted: true,
               reason: "poll",
             });
@@ -327,10 +449,14 @@ export default function HomePage() {
                 `Forcing fallback download for ${jobId} after waiting 3 minutes.`,
                 "info"
               );
-              const downloaded = await attemptDownload(jobId, {
-                markCompleted: true,
-                reason: "fallback",
-              });
+              const downloaded = await attemptDownload(
+                jobId,
+                snapshot.provider ?? effectiveProvider,
+                {
+                  markCompleted: true,
+                  reason: "fallback",
+                }
+              );
               fallbackHandled = true;
               if (downloaded) {
                 return;
@@ -359,24 +485,29 @@ export default function HomePage() {
       if (existing?.timeoutId) {
         clearTimeout(existing.timeoutId);
       }
-      pollersRef.current.set(jobId, { poll, timeoutId: null });
+      pollersRef.current.set(jobId, { poll, timeoutId: null, provider: baseProvider });
       poll();
     },
-    [emitLog, mutateVideo, clearPoller]
+    [emitLog, mutateVideo, clearPoller, attemptDownload]
   );
 
   const forcePollNow = useCallback(
-    (jobId) => {
+    (jobId, provider) => {
       const poller = pollersRef.current.get(jobId);
       if (poller?.timeoutId) {
         clearTimeout(poller.timeoutId);
-        pollersRef.current.set(jobId, { poll: poller.poll, timeoutId: null });
+        pollersRef.current.set(jobId, {
+          poll: poller.poll,
+          timeoutId: null,
+          provider: poller.provider ?? provider ?? "openai",
+        });
       }
 
       if (poller?.poll) {
         poller.poll();
       } else {
-        startPolling(jobId);
+        const fallbackProvider = provider ?? "openai";
+        startPolling(jobId, fallbackProvider);
       }
     },
     [startPolling]
@@ -391,9 +522,22 @@ export default function HomePage() {
         return;
       }
 
+      const modelConfig = selectedModelOption ?? defaultModelOption;
+      const provider = modelConfig?.provider ?? "openai";
+      const providerLabel = PROVIDER_LABELS[provider] ?? provider;
+      const apiModel = modelConfig?.apiModel ?? modelConfig?.id ?? "sora-2";
+      const normalizedSeconds = String(seconds ?? modelConfig?.defaultSeconds ?? "8");
+      const normalizedSize = String(size ?? modelConfig?.defaultSize ?? "1280x720");
+      const payloadRemixId =
+        provider === "openai" ? remixVideoId.trim() || undefined : undefined;
+      const payloadInputReference = inputReference.trim() || undefined;
+
       setStatusLed("busy");
       setIsSubmitting(true);
-      emitLog(`Dispatching prompt: "${trimmedPrompt}"`, "info");
+      emitLog(
+        `Dispatching ${providerLabel} :: ${modelConfig?.label ?? apiModel} prompt: "${trimmedPrompt}"`,
+        "info"
+      );
 
       try {
         const response = await fetch("/api/videos", {
@@ -403,11 +547,12 @@ export default function HomePage() {
           },
           body: JSON.stringify({
             prompt: trimmedPrompt,
-            model,
-            seconds,
-            size,
-            remix_video_id: remixVideoId.trim() || undefined,
-            input_reference: inputReference.trim() || undefined,
+            provider,
+            model: apiModel,
+            seconds: normalizedSeconds,
+            size: normalizedSize,
+            remix_video_id: payloadRemixId,
+            input_reference: payloadInputReference,
           }),
         });
 
@@ -425,6 +570,11 @@ export default function HomePage() {
           {
             id: job.id,
             prompt: trimmedPrompt,
+            provider,
+            model: apiModel,
+            modelId: modelConfig?.id ?? modelId,
+            seconds: normalizedSeconds,
+            size: normalizedSize,
             status: job.status,
             progress: Number(job.progress ?? 0) || 0,
             objectUrl: null,
@@ -441,7 +591,7 @@ export default function HomePage() {
           ...prev,
         ]);
 
-        startPolling(job.id);
+        startPolling(job.id, provider);
         setPrompt("");
         setRemixVideoId("");
         setInputReference("");
@@ -455,14 +605,25 @@ export default function HomePage() {
         }
       }
     },
-    [prompt, model, seconds, size, remixVideoId, inputReference, emitLog, startPolling]
+    [
+      prompt,
+      selectedModelOption,
+      defaultModelOption,
+      modelId,
+      seconds,
+      size,
+      remixVideoId,
+      inputReference,
+      emitLog,
+      startPolling,
+    ]
   );
 
   const handleReset = useCallback(() => {
     setPrompt("");
-    setModel("sora-2");
-    setSeconds("8");
-    setSize("1280x720");
+    setModelId(defaultModelId);
+    setSeconds(defaultModelOption?.defaultSeconds ?? defaultSeconds);
+    setSize(defaultModelOption?.defaultSize ?? defaultSize);
     setRemixVideoId("");
     setInputReference("");
     setStatusLed("idle");
@@ -470,16 +631,46 @@ export default function HomePage() {
     if (promptRef.current) {
       promptRef.current.focus();
     }
-  }, [emitLog]);
+  }, [defaultModelId, defaultModelOption, defaultSeconds, defaultSize, emitLog]);
 
-  const handleRetry = useCallback((videoPrompt) => {
-    setPrompt(videoPrompt);
-    setStatusLed("idle");
-    emitLog("Prompt loaded back into the command deck for retry.", "info");
-    if (promptRef.current) {
-      promptRef.current.focus();
-    }
-  }, [emitLog]);
+  const handleRetry = useCallback(
+    (video) => {
+      setPrompt(video?.prompt ?? "");
+
+      const inferredModelId =
+        video?.modelId ??
+        ALL_MODEL_OPTIONS.find(
+          (option) =>
+            option.apiModel === video?.model &&
+            (video?.provider ? option.provider === video.provider : true)
+        )?.id ??
+        defaultModelId;
+
+      const nextModelOption = MODEL_LOOKUP[inferredModelId] ?? defaultModelOption;
+      setModelId(nextModelOption?.id ?? defaultModelId);
+
+      const desiredSeconds =
+        video?.seconds != null ? String(video.seconds) : nextModelOption?.defaultSeconds;
+      const desiredSize =
+        video?.size != null ? String(video.size) : nextModelOption?.defaultSize;
+
+      const safeSeconds = nextModelOption?.secondsOptions?.includes(desiredSeconds)
+        ? desiredSeconds
+        : nextModelOption?.defaultSeconds ?? defaultSeconds;
+      const safeSize = nextModelOption?.sizeOptions?.includes(desiredSize)
+        ? desiredSize
+        : nextModelOption?.defaultSize ?? defaultSize;
+
+      setSeconds(safeSeconds);
+      setSize(safeSize);
+      setStatusLed("idle");
+      emitLog("Prompt loaded back into the command deck for retry.", "info");
+      if (promptRef.current) {
+        promptRef.current.focus();
+      }
+    },
+    [defaultModelId, defaultModelOption, defaultSeconds, defaultSize, emitLog]
+  );
 
   const activeVideoCountLabel = `${videos.length} ${videos.length === 1 ? "Video Armed" : "Videos Armed"}`;
 
@@ -542,27 +733,68 @@ export default function HomePage() {
             <section className="config-panel" aria-label="Render configuration">
               <header className="config-panel__header">
                 <h3>Render Specs</h3>
-                <span>Fine-tune how Sora composes the clip.</span>
+                <span>Fine-tune how each engine composes the clip.</span>
               </header>
               <div className="config-grid">
                 <label className="config-field">
                   <span>Model</span>
-                  <select value={model} onChange={(event) => setModel(event.target.value)}>
-                    <option value="sora-2">sora-2 - fast iteration</option>
+                  <select
+                    value={modelId}
+                    onChange={(event) => {
+                      const nextId = event.target.value;
+                      const nextOption = MODEL_LOOKUP[nextId] ?? defaultModelOption;
+                      setModelId(nextOption?.id ?? nextId);
+
+                      if (nextOption) {
+                        const nextSeconds = nextOption.secondsOptions?.includes(String(seconds))
+                          ? String(seconds)
+                          : nextOption.defaultSeconds;
+                        const nextSize = nextOption.sizeOptions?.includes(String(size))
+                          ? String(size)
+                          : nextOption.defaultSize;
+                        setSeconds(nextSeconds);
+                        setSize(nextSize);
+                        if (nextOption.provider !== "openai") {
+                          setRemixVideoId("");
+                        }
+                      }
+                    }}
+                  >
+                    {MODEL_CATALOG.map((group) => (
+                      <optgroup key={group.category} label={group.category}>
+                        {group.options.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                 </label>
                 <label className="config-field">
                   <span>Seconds</span>
-                  <select value={seconds} onChange={(event) => setSeconds(event.target.value)}>
-                    <option value="4">4s</option>
-                    <option value="8">8s</option>
-                    <option value="12">12s</option>
+                  <select
+                    value={seconds}
+                    onChange={(event) => setSeconds(event.target.value)}
+                  >
+                    {secondsOptions.map((optionValue) => (
+                      <option key={optionValue} value={optionValue}>
+                        {`${optionValue}s`}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="config-field">
                   <span>Canvas</span>
-                  <select value={size} onChange={(event) => setSize(event.target.value)}>
-                    <option value="1280x720">1280 x 720 - HD landscape</option>
+                  <select
+                    value={size}
+                    onChange={(event) => setSize(event.target.value)}
+                  >
+                    {sizeOptions.map((optionValue) => (
+                      <option key={optionValue} value={optionValue}>
+                        {formatSizeLabel(optionValue)}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="config-field config-field--wide">
@@ -571,6 +803,12 @@ export default function HomePage() {
                     type="text"
                     placeholder="Optional: video_xxx to reuse structure"
                     value={remixVideoId}
+                    disabled={selectedProvider !== "openai"}
+                    title={
+                      selectedProvider !== "openai"
+                        ? "Remix is only available for OpenAI Sora models."
+                        : undefined
+                    }
                     onChange={(event) => setRemixVideoId(event.target.value)}
                   />
                 </label>
@@ -578,7 +816,11 @@ export default function HomePage() {
                   <span>Input reference</span>
                   <input
                     type="text"
-                    placeholder="Optional: hosted image URL or asset key"
+                    placeholder={
+                      selectedProvider === "replicate"
+                        ? "Optional: image URL for first frame"
+                        : "Optional: hosted image URL or asset key"
+                    }
                     value={inputReference}
                     onChange={(event) => setInputReference(event.target.value)}
                   />
@@ -610,6 +852,12 @@ export default function HomePage() {
               const isFailed = video.status === "failed";
               const canDownload = Boolean(video.objectUrl);
               const progressLabel = isFailed ? "ERR" : `${Math.round(video.progress ?? 0)}%`;
+              const providerLabel = PROVIDER_LABELS[video.provider] ?? video.provider ?? "OpenAI";
+              const modelLabel =
+                MODEL_LABEL_LOOKUP[video.modelId] ?? video.model ?? "Unknown model";
+              const displaySeconds =
+                video.seconds != null ? `${video.seconds}s` : null;
+              const displaySize = video.size ? formatSizeLabel(video.size) : null;
 
               return (
                 <article className="video-card" role="listitem" key={video.id}>
@@ -640,6 +888,24 @@ export default function HomePage() {
                       </div>
                     </div>
                     <div className="video-card__details">
+                      <div className="video-card__meta">
+                        <span className="meta-chip meta-chip--compact">
+                          {providerLabel}
+                        </span>
+                        <span className="meta-chip meta-chip--compact">
+                          {modelLabel}
+                        </span>
+                        {displaySeconds ? (
+                          <span className="meta-chip meta-chip--compact meta-chip--ghost">
+                            {displaySeconds}
+                          </span>
+                        ) : null}
+                        {displaySize ? (
+                          <span className="meta-chip meta-chip--compact meta-chip--ghost">
+                            {displaySize}
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="video-card__prompt">{video.prompt}</p>
                       <div className="video-card__progress">
                         <div className="progress-bar">
@@ -664,7 +930,7 @@ export default function HomePage() {
                     <button
                       type="button"
                       className="btn btn--mini btn--ghost"
-                      onClick={() => handleRetry(video.prompt)}
+                      onClick={() => handleRetry(video)}
                       hidden={!isFailed}
                     >
                       Retry
@@ -672,14 +938,14 @@ export default function HomePage() {
                     <button
                       type="button"
                       className="btn btn--mini btn--ghost"
-                      onClick={() => forcePollNow(video.id)}
+                      onClick={() => forcePollNow(video.id, video.provider)}
                       hidden={canDownload || isFailed}
                     >
                       Check now
                     </button>
                     <a
                       className="btn btn--mini btn--ghost"
-                      href={`/api/videos/${video.id}`}
+                      href={`/api/videos/${video.id}?provider=${encodeURIComponent(video.provider ?? "openai")}`}
                       target="_blank"
                       rel="noopener noreferrer"
                     >

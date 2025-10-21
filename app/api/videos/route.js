@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import {
+  createReplicateVideoJob,
+  ReplicateConfigurationError,
+  ReplicateValidationError,
+} from "../../../lib/providers/replicate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const OPENAI_DEFAULT_MODEL = "sora-2";
+const OPENAI_ALLOWED_MODELS = new Set(["sora-2", "sora-2-pro"]);
+const OPENAI_ALLOWED_SECONDS = ["4", "8", "12"];
+const OPENAI_DEFAULT_SECONDS = "8";
+const OPENAI_DEFAULT_SIZE = "1280x720";
+const REPLICATE_DEFAULT_MODEL = "bytedance/seedance-1-pro";
 
 const getClient = () => {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -10,6 +22,14 @@ const getClient = () => {
     throw new Error("Server is missing OPENAI_API_KEY configuration.");
   }
   return new OpenAI({ apiKey });
+};
+
+const normalizeProvider = (value) => {
+  if (typeof value !== "string") {
+    return "openai";
+  }
+  const trimmed = value.trim().toLowerCase();
+  return trimmed === "replicate" ? "replicate" : "openai";
 };
 
 export async function POST(request) {
@@ -22,15 +42,43 @@ export async function POST(request) {
 
   const {
     prompt,
-    model = "sora-2",
-    size = "1280x720",
-    seconds = "8",
+    model,
+    size = OPENAI_DEFAULT_SIZE,
+    seconds = OPENAI_DEFAULT_SECONDS,
     remix_video_id,
     input_reference,
+    provider: requestedProvider,
   } = payload ?? {};
 
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+  }
+
+  const provider = normalizeProvider(requestedProvider);
+  const trimmedPrompt = prompt.trim();
+  const trimmedInputReference =
+    typeof input_reference === "string" ? input_reference.trim() : input_reference;
+
+  if (provider === "replicate") {
+    const replicateModel =
+      typeof model === "string" && model.trim() ? model.trim() : REPLICATE_DEFAULT_MODEL;
+    try {
+      const job = await createReplicateVideoJob({
+        model: replicateModel,
+        prompt: trimmedPrompt,
+        seconds,
+        size,
+        inputReference: trimmedInputReference || undefined,
+      });
+      return NextResponse.json(job, { status: 202 });
+    } catch (error) {
+      const status =
+        error instanceof ReplicateValidationError ? 400 :
+        error instanceof ReplicateConfigurationError ? 500 :
+        error?.status ?? 500;
+      const message = error?.message ?? "Failed to start video generation.";
+      return NextResponse.json({ error: message }, { status });
+    }
   }
 
   let client;
@@ -40,22 +88,33 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const allowedSeconds = ["4", "8", "12"];
-  const normalizedSeconds = seconds != null ? String(seconds) : "8";
-  const normalizedSize = size != null ? String(size) : "1280x720";
+  const normalizedSeconds =
+    seconds != null ? String(seconds) : OPENAI_DEFAULT_SECONDS;
+  const normalizedSize = size != null ? String(size) : OPENAI_DEFAULT_SIZE;
+  const normalizedModel =
+    typeof model === "string" && model.trim() ? model.trim() : OPENAI_DEFAULT_MODEL;
 
-  if (!allowedSeconds.includes(normalizedSeconds)) {
+  if (!OPENAI_ALLOWED_MODELS.has(normalizedModel)) {
     return NextResponse.json(
       {
-        error: `Invalid seconds value. Allowed options: ${allowedSeconds.join(", ")}.`,
+        error: `Invalid model value. Allowed options: ${Array.from(OPENAI_ALLOWED_MODELS).join(", ")}.`,
+      },
+      { status: 400 }
+    );
+  }
+
+  if (!OPENAI_ALLOWED_SECONDS.includes(normalizedSeconds)) {
+    return NextResponse.json(
+      {
+        error: `Invalid seconds value. Allowed options: ${OPENAI_ALLOWED_SECONDS.join(", ")}.`,
       },
       { status: 400 }
     );
   }
 
   const requestBody = {
-    model,
-    prompt: prompt.trim(),
+    model: normalizedModel,
+    prompt: trimmedPrompt,
     size: normalizedSize,
     seconds: normalizedSeconds,
   };
@@ -66,15 +125,19 @@ export async function POST(request) {
     requestBody.remix_video_id = trimmedRemixId;
   }
 
-  const trimmedInputReference =
-    typeof input_reference === "string" ? input_reference.trim() : input_reference;
   if (trimmedInputReference) {
     requestBody.input_reference = trimmedInputReference;
   }
 
   try {
     const job = await client.videos.create(requestBody);
-    return NextResponse.json(job, { status: 202 });
+    return NextResponse.json(
+      {
+        ...job,
+        provider: "openai",
+      },
+      { status: 202 }
+    );
   } catch (error) {
     const status = error?.status ?? 500;
     const message =
