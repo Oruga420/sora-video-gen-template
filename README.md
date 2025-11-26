@@ -6,6 +6,7 @@ Next.js (App Router) playground for launching Sora video generations in a Contra
 
 - **Next.js 14** with the app directory and React Server/Client components
 - **Sora Video API** via `openai` SDK (`videos.create`, `videos.retrieve`, `videos.downloadContent`)
+- **Replicate** video models (Seedance 1 Pro + Google Veo 3.1 Fast) via the `replicate` SDK
 - **Neon pixel styling** ported from the original static build into `app/globals.css`
 
 ### Prerequisites

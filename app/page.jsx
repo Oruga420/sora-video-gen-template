@@ -50,6 +50,16 @@ const MODEL_CATALOG = [
         sizeOptions: ["1080p", "480p"],
         defaultSize: "1080p",
       },
+      {
+        id: "replicate:google/veo-3.1-fast",
+        provider: "replicate",
+        apiModel: "google/veo-3.1-fast",
+        label: "Veo 3.1 Fast (8s, 1080p/720p)",
+        secondsOptions: ["8"],
+        defaultSeconds: "8",
+        sizeOptions: ["1080p", "720p"],
+        defaultSize: "1080p",
+      },
     ],
   },
 ];
@@ -100,6 +110,8 @@ const formatSizeLabel = (value) => {
       return "1280 x 720 - HD landscape";
     case "1080p":
       return "1080p - Full HD";
+    case "720p":
+      return "720p - HD";
     case "480p":
       return "480p - SD";
     default:
